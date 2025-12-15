@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tx Agent POC</title>
+  <style>
+    body { font-family: system-ui; padding: 16px; max-width: 720px; margin: auto; }
+    input { width: 100%; padding: 10px; font-size: 14px; }
+    button { padding: 10px 12px; margin: 8px 8px 0 0; }
+    #actions { margin-top: 8px; }
+    pre { background: #f6f6f6; padding: 12px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Tx Agent（本地 POC）</h2>
+
+  <input id="txid" placeholder="输入 Tx Hash（0x...）" />
+  <button id="go">识别交易并生成操作</button>
+
+  <p id="msg"></p>
+  <div id="actions"></div>
+  <pre id="debug"></pre>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function requireProvider() {
+  if (!window.ethereum?.request) {
+    throw new Error("未检测到钱包 Provider（请在钱包 DApp 浏览器中打开）");
+  }
+  return window.ethereum;
+}
+
+async function addChain(chain) {
+  await requireProvider().request({
+    method: "wallet_addEthereumChain",
+    params: [{
+      chainId: chain.chainId,
+      chainName: chain.name,
+      rpcUrls: chain.rpcUrls,
+      blockExplorerUrls: chain.blockExplorerUrls,
+      nativeCurrency: chain.nativeCurrency
+    }]
+  });
+}
+
+async function switchChain(chain) {
+  await requireProvider().request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: chain.chainId }]
+  });
+}
+
+function openExplorer(chain, tx) {
+  const base = chain.blockExplorerUrls?.[0];
+  window.open(`${base}/tx/${tx.hash}`, "_blank");
+}
+
+function renderActions(payload) {
+  $("actions").innerHTML = "";
+  const { actions, chain, tx } = payload;
+
+  actions.forEach(a => {
+    const btn = document.createElement("button");
+    btn.textContent = a.label;
+
+    btn.onclick = async () => {
+      try {
+        $("msg").textContent = "处理中…";
+        if (a.type === "add_chain") await addChain(chain);
+        if (a.type === "switch_chain") await switchChain(chain);
+        if (a.type === "open_explorer") openExplorer(chain, tx);
+        $("msg").textContent = "完成";
+      } catch (e) {
+        $("msg").textContent = "错误：" + e.message;
+      }
+    };
+
+    $("actions").appendChild(btn);
+  });
+}
+
+$("go").onclick = async () => {
+  const txid = $("txid").value.trim();
+  $("msg").textContent = "识别中…";
+  $("actions").innerHTML = "";
+
+  const res = await fetch("http://localhost:8787/api/agent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ txid })
+  });
+
+  const payload = await res.json();
+  $("msg").textContent = payload.assistant_message;
+  $("debug").textContent = JSON.stringify(payload, null, 2);
+  renderActions(payload);
+};
+</script>
+</body>
+</html>
